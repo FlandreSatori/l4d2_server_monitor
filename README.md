@@ -1,14 +1,19 @@
-# astrbot-plugin-helloworld
+# L4D2 Server Monitor
 
-AstrBot 插件模板 / A template plugin for AstrBot plugin feature
+用于 AstrBot 的 L4D2 服务器查询与地图记录插件。
 
-> [!NOTE]
-> This repo is just a template of [AstrBot](https://github.com/AstrBotDevs/AstrBot) Plugin.
-> 
-> [AstrBot](https://github.com/AstrBotDevs/AstrBot) is an agentic assistant for both personal and group conversations. It can be deployed across dozens of mainstream instant messaging platforms, including QQ, Telegram, Feishu, DingTalk, Slack, LINE, Discord, Matrix, etc. In addition, it provides a reliable and extensible conversational AI infrastructure for individuals, developers, and teams. Whether you need a personal AI companion, an intelligent customer support agent, an automation assistant, or an enterprise knowledge base, AstrBot enables you to quickly build AI applications directly within your existing messaging workflows.
+## 功能
 
-# Supports
+- `/有无求生`：查询 L4D2 服务器状态与在线玩家。
+- `/map [地图名]`：查看地图列表；带参数时追加一条地图。
+- `/reset`：清空地图列表。
 
-- [AstrBot Repo](https://github.com/AstrBotDevs/AstrBot)
-- [AstrBot Plugin Development Docs (Chinese)](https://docs.astrbot.app/dev/star/plugin-new.html)
-- [AstrBot Plugin Development Docs (English)](https://docs.astrbot.app/en/dev/star/plugin-new.html)
+## 持久化
+
+地图数据会保存到 AstrBot 数据目录下：
+
+- `data/plugin_data/astrbot_plugin_l4d2_server_monitor/maps.json`
+
+## 依赖
+
+插件目录下包含 `requirements.txt`，安装插件时会自动安装所需第三方库。
