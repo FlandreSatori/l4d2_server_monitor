@@ -6,7 +6,7 @@ from pathlib import Path
 
 import a2s
 
-from astrbot.api import logger
+from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, StarTools, register
 
@@ -15,16 +15,39 @@ from astrbot.api.star import Context, Star, StarTools, register
     "astrbot_plugin_l4d2_server_monitor",
     "FlandreSatori",
     "L4D2 服务器监控与地图记录插件",
-    "1.1.0",
+    "1.2.0",
 )
 class L4D2ServerMonitorPlugin(Star):
-    def __init__(self, context: Context) -> None:
-        super().__init__(context)
+    def __init__(
+        self,
+        context: Context,
+        config: AstrBotConfig | None = None,
+    ) -> None:
+        super().__init__(context, config)
+        self.config = config or {}
         self.maps: list[str] = []
         self.bother_count = 0
-        self.host = "l4d.lolser.fun"
-        self.port = 27015
+        self.default_host = "127.0.0.1"
+        self.default_port = 27015
         self._data_file: Path = StarTools.get_data_dir() / "maps.json"
+
+    def _get_server_address(self) -> tuple[str, int]:
+        host = str(self.config.get("host", self.default_host)).strip()
+        if not host:
+            host = self.default_host
+
+        raw_port = self.config.get("port", self.default_port)
+        try:
+            port = int(raw_port)
+            if not (1 <= port <= 65535):
+                raise ValueError("port out of range")
+        except Exception:
+            logger.warning(
+                f"Invalid plugin config port {raw_port!r}, fallback to {self.default_port}",
+            )
+            port = self.default_port
+
+        return host, port
 
     async def initialize(self) -> None:
         await self._load_maps()
@@ -74,7 +97,7 @@ class L4D2ServerMonitorPlugin(Star):
             await self._save_maps()
         yield event.plain_result(self._render_maps())
 
-    @filter.command("reset")
+    @filter.command("下机")
     async def reset_maps(self, event: AstrMessageEvent):
         """重置今日地图列表"""
         self.maps = []
@@ -84,7 +107,7 @@ class L4D2ServerMonitorPlugin(Star):
     @filter.command("有无求生")
     async def l4d2_server(self, event: AstrMessageEvent):
         """查询 L4D2 服务器状态"""
-        address = (self.host, self.port)
+        address = self._get_server_address()
         loop = asyncio.get_running_loop()
 
         try:

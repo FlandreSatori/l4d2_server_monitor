@@ -1,0 +1,14 @@
+{
+    "host": {
+        "description": "L4D2 server host",
+        "type": "string",
+        "default": "127.0.0.1",
+        "hint": "Domain or IP address of the game server."
+    },
+    "port": {
+        "description": "L4D2 server query port",
+        "type": "int",
+        "default": 27015,
+        "hint": "Server query port, usually 27015."
+    }
+}
