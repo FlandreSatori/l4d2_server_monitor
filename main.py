@@ -149,6 +149,7 @@ class L4D2ServerMonitorPlugin(Star):
             return
 
         address = self._get_server_address()
+        host, port = address
         loop = asyncio.get_running_loop()
 
         try:
@@ -173,6 +174,7 @@ class L4D2ServerMonitorPlugin(Star):
                 players = []
 
             server_info = [
+                f"查询地址: {host}:{port}",
                 f"|====={info.server_name}=====|",
                 f"地图: {info.map_name}",
                 f"玩家: {info.player_count}/{info.max_players}",
