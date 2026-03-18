@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
+import sys
 from pathlib import Path
 
 import a2s
@@ -29,7 +31,39 @@ class L4D2ServerMonitorPlugin(Star):
         self.bother_count = 0
         self.default_host = "127.0.0.1"
         self.default_port = 27015
+        self._a2s_ready = True
+        self._a2s_error = ""
         self._data_file: Path = StarTools.get_data_dir() / "maps.json"
+
+    def _ensure_a2s_module(self) -> None:
+        global a2s
+        if hasattr(a2s, "info") and hasattr(a2s, "players"):
+            self._a2s_ready = True
+            self._a2s_error = ""
+            return
+
+        plugin_site = Path.home() / ".astrbot" / "data" / "site-packages"
+        plugin_site_str = str(plugin_site)
+        if plugin_site.exists() and plugin_site_str not in sys.path:
+            sys.path.insert(0, plugin_site_str)
+
+        try:
+            a2s = importlib.reload(a2s)
+        except Exception:
+            a2s = importlib.import_module("a2s")
+
+        if hasattr(a2s, "info") and hasattr(a2s, "players"):
+            self._a2s_ready = True
+            self._a2s_error = ""
+            logger.info(f"a2s 存在: {getattr(a2s, '__file__', 'unknown')}")
+            return
+
+        self._a2s_ready = False
+        self._a2s_error = "a2s 依赖异常，请检查AstrBot的python环境"
+        logger.error(
+            f"a2s 不可用: module={getattr(a2s, '__file__', 'unknown')}, "
+            f"attrs={[n for n in dir(a2s) if 'info' in n.lower() or 'player' in n.lower()]}",
+        )
 
     def _get_server_address(self) -> tuple[str, int]:
         host = str(self.config.get("host", self.default_host)).strip()
@@ -40,16 +74,17 @@ class L4D2ServerMonitorPlugin(Star):
         try:
             port = int(raw_port)
             if not (1 <= port <= 65535):
-                raise ValueError("port out of range")
+                raise ValueError("端口不在1-65535范围内")
         except Exception:
             logger.warning(
-                f"Invalid plugin config port {raw_port!r}, fallback to {self.default_port}",
+                f"插件配置端口无效 {raw_port!r}，已默认 {self.default_port}",
             )
             port = self.default_port
 
         return host, port
 
     async def initialize(self) -> None:
+        self._ensure_a2s_module()
         await self._load_maps()
 
     async def terminate(self) -> None:
@@ -67,7 +102,7 @@ class L4D2ServerMonitorPlugin(Star):
             else:
                 self.maps = []
         except Exception as exc:
-            logger.warning(f"Failed to load map list: {exc!s}")
+            logger.warning(f"加载地图列表失败: {exc!s}")
             self.maps = []
 
     async def _save_maps(self) -> None:
@@ -78,7 +113,7 @@ class L4D2ServerMonitorPlugin(Star):
                 encoding="utf-8",
             )
         except Exception as exc:
-            logger.error(f"Failed to save map list: {exc!s}")
+            logger.error(f"保存地图列表失败: {exc!s}")
 
     def _render_maps(self) -> str:
         if not self.maps:
@@ -107,6 +142,12 @@ class L4D2ServerMonitorPlugin(Star):
     @filter.command("有无求生")
     async def l4d2_server(self, event: AstrMessageEvent):
         """查询 L4D2 服务器状态"""
+        if not self._a2s_ready:
+            yield event.plain_result(
+                f"❌ 查询失败: {self._a2s_error}",
+            )
+            return
+
         address = self._get_server_address()
         loop = asyncio.get_running_loop()
 
@@ -128,7 +169,7 @@ class L4D2ServerMonitorPlugin(Star):
                     timeout=10.0,
                 )
             except Exception as exc:
-                logger.warning(f"Failed to query L4D2 players: {exc!s}")
+                logger.warning(f"查询 L4D2 玩家列表失败: {exc!s}")
                 players = []
 
             server_info = [
@@ -154,7 +195,7 @@ class L4D2ServerMonitorPlugin(Star):
             server_info.append(self._render_maps())
             yield event.plain_result("\n".join(server_info))
         except Exception as exc:
-            logger.error(f"Failed to query L4D2 server: {exc!s}")
+            logger.error(f"查询 L4D2 服务器失败: {exc!s}")
             yield event.plain_result(f"❌ 查询失败: {exc!s}")
 
     @filter.event_message_type(filter.EventMessageType.ALL)
