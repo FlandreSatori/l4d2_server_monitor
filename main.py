@@ -49,6 +49,45 @@ class L4D2ServerMonitorPlugin(Star):
 
         return host, port
 
+    @staticmethod
+    def _invoke_a2s_func(func, address: tuple[str, int]):
+        try:
+            return func(address, timeout=10.0, encoding="utf-8")
+        except TypeError:
+            try:
+                return func(address, timeout=10.0)
+            except TypeError:
+                return func(address)
+
+    async def _query_a2s(self, address: tuple[str, int], kind: str):
+        candidate_names = [kind, f"a{kind}"]
+        query_func = None
+        for name in candidate_names:
+            func = getattr(a2s, name, None)
+            if callable(func):
+                query_func = func
+                break
+
+        if query_func is None:
+            raise RuntimeError(
+                f"a2s query method not found: {kind}. Tried {', '.join(candidate_names)}",
+            )
+
+        if asyncio.iscoroutinefunction(query_func):
+            return await asyncio.wait_for(
+                self._invoke_a2s_func(query_func, address),
+                timeout=10.0,
+            )
+
+        loop = asyncio.get_running_loop()
+        return await asyncio.wait_for(
+            loop.run_in_executor(
+                None,
+                lambda: self._invoke_a2s_func(query_func, address),
+            ),
+            timeout=10.0,
+        )
+
     async def initialize(self) -> None:
         await self._load_maps()
 
@@ -89,9 +128,9 @@ class L4D2ServerMonitorPlugin(Star):
         return f"今日地图列表:\n{maps_display}"
 
     @filter.command("map")
-    async def maps_command(self, event: AstrMessageEvent, *map_parts: str):
+    async def maps_command(self, event: AstrMessageEvent, map_parts: str = ""):
         """查看或追加今日地图。用法：/map [地图名]"""
-        new_map = " ".join(map_parts).strip()
+        new_map = map_parts.strip()
         if new_map:
             self.maps.append(new_map)
             await self._save_maps()
@@ -108,25 +147,12 @@ class L4D2ServerMonitorPlugin(Star):
     async def l4d2_server(self, event: AstrMessageEvent):
         """查询 L4D2 服务器状态"""
         address = self._get_server_address()
-        loop = asyncio.get_running_loop()
 
         try:
-            info = await asyncio.wait_for(
-                loop.run_in_executor(
-                    None,
-                    lambda: a2s.info(address, timeout=10.0, encoding="utf-8"),
-                ),
-                timeout=10.0,
-            )
+            info = await self._query_a2s(address, "info")
 
             try:
-                players = await asyncio.wait_for(
-                    loop.run_in_executor(
-                        None,
-                        lambda: a2s.players(address, timeout=10.0, encoding="utf-8"),
-                    ),
-                    timeout=10.0,
-                )
+                players = await self._query_a2s(address, "players")
             except Exception as exc:
                 logger.warning(f"Failed to query L4D2 players: {exc!s}")
                 players = []
