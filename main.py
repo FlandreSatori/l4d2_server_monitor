@@ -117,35 +117,29 @@ class L4D2ServerMonitorPlugin(Star):
 
     def _render_maps(self) -> str:
         if not self.maps:
-            return "今日地图列表为空"
+            return "地图列表为空"
         maps_display = "\n".join(
             [f"{index + 1}. {map_name}" for index, map_name in enumerate(self.maps)],
         )
-        return f"今日地图列表:\n{maps_display}"
+        return f"地图列表:\n{maps_display}"
 
     @filter.command("map")
     async def maps_command(self, event: AstrMessageEvent, map_parts: str = ""):
-        """查看或追加今日地图。用法：/map [地图名]"""
+        """查看或追加地图。用法：/map [地图名]"""
         new_map = map_parts.strip()
         if new_map:
             self.maps.append(new_map)
             await self._save_maps()
         yield event.plain_result(self._render_maps())
 
-    @filter.command("下机")
+    @filter.regex(r"^下机$")
     async def reset_maps(self, event: AstrMessageEvent):
-        """重置今日地图列表"""
+        """重置地图列表"""
         self.maps = []
         await self._save_maps()
         yield event.plain_result(self._render_maps())
 
-    @filter.regex(r"^下机$")
-    async def reset_maps_plain(self, event: AstrMessageEvent):
-        """纯文本触发：下机"""
-        async for result in self.reset_maps(event):
-            yield result
-
-    @filter.command("有无求生")
+    @filter.regex(r"^有无求生$")
     async def l4d2_server(self, event: AstrMessageEvent):
         """查询 L4D2 服务器状态"""
         if not self._a2s_ready:
@@ -212,12 +206,6 @@ class L4D2ServerMonitorPlugin(Star):
                 return
 
             yield event.plain_result("❌ 查询失败，可能是公网入口被爆破或未开服。")
-
-    @filter.regex(r"^有无求生$")
-    async def l4d2_server_plain(self, event: AstrMessageEvent):
-        """纯文本触发：有无求生"""
-        async for result in self.l4d2_server(event):
-            yield result
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def handle_empty_mention(self, event: AstrMessageEvent):
