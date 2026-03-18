@@ -139,6 +139,12 @@ class L4D2ServerMonitorPlugin(Star):
         await self._save_maps()
         yield event.plain_result(self._render_maps())
 
+    @filter.regex(r"^下机$")
+    async def reset_maps_plain(self, event: AstrMessageEvent):
+        """纯文本触发：下机"""
+        async for result in self.reset_maps(event):
+            yield result
+
     @filter.command("有无求生")
     async def l4d2_server(self, event: AstrMessageEvent):
         """查询 L4D2 服务器状态"""
@@ -196,7 +202,22 @@ class L4D2ServerMonitorPlugin(Star):
             yield event.plain_result("\n".join(server_info))
         except Exception as exc:
             logger.error(f"查询 L4D2 服务器失败: {exc!s}")
-            yield event.plain_result(f"❌ 查询失败: {exc!s}")
+            err_msg = str(exc)
+            if "Invalid response type" in err_msg:
+                host, port = address
+                yield event.plain_result(
+                    "❌ 查询失败："
+                    f" {host}:{port}\n",
+                )
+                return
+
+            yield event.plain_result("❌ 查询失败，可能是公网入口被爆破或未开服。")
+
+    @filter.regex(r"^有无求生$")
+    async def l4d2_server_plain(self, event: AstrMessageEvent):
+        """纯文本触发：有无求生"""
+        async for result in self.l4d2_server(event):
+            yield result
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def handle_empty_mention(self, event: AstrMessageEvent):
