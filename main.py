@@ -3,22 +3,20 @@ from __future__ import annotations
 import asyncio
 import importlib
 import json
-import sys
+from types import ModuleType
 from pathlib import Path
-
-import a2s
 
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, StarTools, register
 
 
-# @register(
-#     "astrbot_plugin_l4d2_server_monitor",
-#     "FlandreSatori",
-#     "L4D2 服务器监控与地图记录插件",
-#     "1.1.2",
-# )
+@register(
+    "astrbot_plugin_l4d2_server_monitor",
+    "FlandreSatori",
+    "L4D2 服务器监控与地图记录插件",
+    "1.2.2",
+)
 class L4D2ServerMonitorPlugin(Star):
     def __init__(
         self,
@@ -26,51 +24,56 @@ class L4D2ServerMonitorPlugin(Star):
         config: AstrBotConfig | None = None,
     ) -> None:
         super().__init__(context, config)
-        self.config = config or {}
+        self.config = config if config is not None else {}
         self.maps: list[str] = []
-        self.bother_count = 0
         self.default_host = "127.0.0.1"
         self.default_port = 27015
         self._a2s_ready = True
         self._a2s_error = ""
+        self._a2s_module: ModuleType | None = None
         self._data_file: Path = StarTools.get_data_dir() / "maps.json"
 
     def _ensure_a2s_module(self) -> None:
-        global a2s
-        if hasattr(a2s, "info") and hasattr(a2s, "players"):
-            self._a2s_ready = True
-            self._a2s_error = ""
-            return
-
-        plugin_site = Path.home() / ".astrbot" / "data" / "site-packages"
-        plugin_site_str = str(plugin_site)
-        if plugin_site.exists() and plugin_site_str not in sys.path:
-            sys.path.insert(0, plugin_site_str)
-
         try:
-            a2s = importlib.reload(a2s)
-        except Exception:
-            a2s = importlib.import_module("a2s")
-
-        if hasattr(a2s, "info") and hasattr(a2s, "players"):
-            self._a2s_ready = True
-            self._a2s_error = ""
-            logger.info(f"a2s 存在: {getattr(a2s, '__file__', 'unknown')}")
+            module = importlib.import_module("a2s")
+        except Exception as exc:
+            self._a2s_module = None
+            self._a2s_ready = False
+            self._a2s_error = "缺少依赖 a2s，请在插件 requirements.txt 中安装"
+            logger.error(f"a2s 加载失败: {exc!s}")
             return
 
+        if hasattr(module, "info") and hasattr(module, "players"):
+            self._a2s_module = module
+            self._a2s_ready = True
+            self._a2s_error = ""
+            logger.info(f"a2s 可用: {getattr(module, '__file__', 'unknown')}")
+            return
+
+        self._a2s_module = None
         self._a2s_ready = False
         self._a2s_error = "a2s 依赖异常，请检查AstrBot的python环境"
-        logger.error(
-            f"a2s 不可用: module={getattr(a2s, '__file__', 'unknown')}, "
-            f"attrs={[n for n in dir(a2s) if 'info' in n.lower() or 'player' in n.lower()]}",
-        )
+        logger.error(f"a2s 不可用: module={getattr(module, '__file__', 'unknown')}")
+
+    def _config_get(self, key: str, default):
+        config_obj = self.config
+        getter = getattr(config_obj, "get", None)
+        if callable(getter):
+            try:
+                return getter(key, default)
+            except Exception:
+                return default
+
+        if isinstance(config_obj, dict):
+            return config_obj.get(key, default)
+        return default
 
     def _get_server_address(self) -> tuple[str, int]:
-        host = str(self.config.get("host", self.default_host)).strip()
+        host = str(self._config_get("host", self.default_host)).strip()
         if not host:
             host = self.default_host
 
-        raw_port = self.config.get("port", self.default_port)
+        raw_port = self._config_get("port", self.default_port)
         try:
             port = int(raw_port)
             if not (1 <= port <= 65535):
@@ -128,6 +131,10 @@ class L4D2ServerMonitorPlugin(Star):
         """查看或追加地图。用法：/map [地图名]"""
         new_map = map_parts.strip()
         if new_map:
+            if new_map in self.maps:
+                yield event.plain_result(f"地图已存在：{new_map}\n\n{self._render_maps()}")
+                return
+
             self.maps.append(new_map)
             await self._save_maps()
         yield event.plain_result(self._render_maps())
@@ -142,7 +149,8 @@ class L4D2ServerMonitorPlugin(Star):
     @filter.regex(r"^有无求生$")
     async def l4d2_server(self, event: AstrMessageEvent):
         """查询 L4D2 服务器状态"""
-        if not self._a2s_ready:
+        module = self._a2s_module
+        if not self._a2s_ready or module is None:
             yield event.plain_result(
                 f"❌ 查询失败: {self._a2s_error}",
             )
@@ -156,7 +164,7 @@ class L4D2ServerMonitorPlugin(Star):
             info = await asyncio.wait_for(
                 loop.run_in_executor(
                     None,
-                    lambda: a2s.info(address, timeout=10.0, encoding="utf-8"),
+                    lambda: module.info(address, timeout=10.0, encoding="utf-8"),
                 ),
                 timeout=10.0,
             )
@@ -165,7 +173,7 @@ class L4D2ServerMonitorPlugin(Star):
                 players = await asyncio.wait_for(
                     loop.run_in_executor(
                         None,
-                        lambda: a2s.players(address, timeout=10.0, encoding="utf-8"),
+                        lambda: module.players(address, timeout=10.0, encoding="utf-8"),
                     ),
                     timeout=10.0,
                 )
@@ -208,19 +216,3 @@ class L4D2ServerMonitorPlugin(Star):
                 return
 
             yield event.plain_result("❌ 查询失败，可能是公网入口被爆破或未开服。")
-
-    @filter.event_message_type(filter.EventMessageType.ALL)
-    async def handle_empty_mention(self, event: AstrMessageEvent):
-        """Reply when the bot is mentioned without any text content."""
-        message = event.message_str.strip()
-
-        if message:
-            self.bother_count = 0
-            return
-
-        if not getattr(event, "is_at_or_wake_command", False):
-            return
-
-        reply = "…" if self.bother_count == 0 else "@我又不说话，是不是浅草?"
-        self.bother_count += 1
-        yield event.plain_result(reply)
